@@ -1,25 +1,21 @@
 package com.rawdata.controllers;
 
-import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
+import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
+import javax.activation.MimetypesFileTypeMap;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
 
-import org.apache.tomcat.util.http.fileupload.IOUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.PropertySource;
 import org.springframework.stereotype.Controller;
-import org.springframework.util.FileCopyUtils;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -28,10 +24,6 @@ import org.springframework.web.servlet.ModelAndView;
 
 import com.rawdata.dao.FileDao;
 import com.rawdata.domain.FileUpload;
-
-import net.lingala.zip4j.ZipFile;
-import net.lingala.zip4j.exception.ZipException;
-import net.lingala.zip4j.model.FileHeader;
 
 @PropertySource("classpath:database.properties")
 @Controller
@@ -71,23 +63,17 @@ public class MainController
 		Integer id= Integer.parseInt(request.getParameter("id"));
 		FileUpload myfile=dao.find(id);
 		byte[] bytes=myfile.getData();
-		String path=folderPath+myfile.getFileName()+".zip";
 		try 
 		{
-			FileOutputStream fos= new FileOutputStream(path);
-			fos.write(bytes);
-			fos.close();
-			
-			InputStream inputStream = new BufferedInputStream(new FileInputStream(path));
-			FileCopyUtils.copy(inputStream, response.getOutputStream());
-			inputStream.close();
+			response.setContentType("application/zip");
+		    response.setHeader("Content-Disposition", "attachment; filename="+myfile.getFileName());
+		    OutputStream os = response.getOutputStream();
+		    os.write(bytes);
 		}
 		catch(Exception e)
 		{
 			e.printStackTrace();
 		}
-		File temp= new File(path);
-		temp.delete();
 		return null;
 	}
 	@RequestMapping(value ="/viewfiles",method=RequestMethod.GET)
@@ -96,58 +82,69 @@ public class MainController
 		Integer id= Integer.parseInt(request.getParameter("id"));
 		FileUpload myfile=dao.find(id);
 		byte[] bytes=myfile.getData();
-		String path=folderPath+myfile.getFileName()+".zip";
+		ByteArrayInputStream bin = new ByteArrayInputStream(bytes);
+		ZipInputStream zin= new ZipInputStream(bin);
+		List<String> entries = new ArrayList<String>();
+		ZipEntry entry;
 		try 
 		{
-			FileOutputStream fos= new FileOutputStream(path);
-			fos.write(bytes);
-			fos.close();
+			while((entry=zin.getNextEntry())!=null)
+			{
+				entries.add(entry.getName());
+			}
 			
-			ZipFile zipFile = new ZipFile(path);
-			List<FileHeader> fileNames=zipFile.getFileHeaders();
-			model.addObject("fileNamesKey",fileNames);
-			model.addObject("idKey",id);
-			model.setViewName("unzippedlist");
-		}
-		catch(Exception e)
+		} catch (IOException e) 
 		{
+			
 			e.printStackTrace();
 		}
-		File temp= new File(path);
-		temp.delete();
+		model.addObject("idKey",id);
+		model.addObject("fileNamesKey",entries);
+		model.setViewName("unzippedlist");
 		return model;
 	}
 	
 	@RequestMapping(value ="/downloadThis",method=RequestMethod.GET)
-	public ModelAndView viewfiles(HttpServletResponse response,HttpServletRequest request) throws ZipException 
+	public ModelAndView viewfiles(HttpServletResponse response,HttpServletRequest request) throws IOException 
 	{
 		String name=request.getParameter("name");
 		Integer id= Integer.parseInt(request.getParameter("id"));
 		FileUpload myfile=dao.find(id);
 		byte[] bytes=myfile.getData();
-		String pathOfZip=folderPath+myfile.getFileName()+".zip";
-		String path=folderPath+name;
+		ByteArrayInputStream bin = new ByteArrayInputStream(bytes);
+		ZipInputStream zin= new ZipInputStream(bin);
+		ZipEntry entry;
 		try 
-		{	
-			FileOutputStream fos= new FileOutputStream(pathOfZip);
-			fos.write(bytes);
-			fos.close();
-			
-			ZipFile zipFile = new ZipFile(pathOfZip);
-			zipFile.extractFile(name,folderPath);
-			
-			InputStream inputStream = new BufferedInputStream(new FileInputStream(path));
-			FileCopyUtils.copy(inputStream, response.getOutputStream());
-			inputStream.close();
+		{
+			while((entry=zin.getNextEntry())!=null)
+			{
+				 if (entry.getName().equals(name)) 
+				 {
+					 
+					 MimetypesFileTypeMap mtft = new MimetypesFileTypeMap();
+	          		 String mimeType = mtft.getContentType(entry.getName());
+	          		 System.out.println(entry.getName());
+	          		 System.out.println(mimeType);
+					 
+	          		 OutputStream os = response.getOutputStream();
+		             byte[] buffer = new byte[(int)entry.getSize()];
+		             int len;
+		             while ((len = zin.read(buffer)) >0) 
+		             {
+		            	 response.setContentType(mimeType);
+		            	 response.setHeader("Content-Disposition", "attachment; filename="+entry.getName());
+		           	  	 os.write(buffer, 0, len);
+		              }
+		              
+		         }
+			}
+		
 		}
-		catch(Exception e)
+		catch (Exception e) 
 		{
 			e.printStackTrace();
 		}
-		File temp= new File(path);
-		temp.delete();
-		File temp1= new File(pathOfZip);
-		temp1.delete();
 		return null;
 	}
 }
+
